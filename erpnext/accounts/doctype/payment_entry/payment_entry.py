@@ -1208,7 +1208,11 @@ class PaymentEntry(AccountsController):
 		if cancel:
 			cancel_exchange_gain_loss_journal(frappe._dict(doctype=self.doctype, name=self.name))
 		else:
-			self.make_exchange_gain_loss_journal()
+			dimensions_dict = frappe._dict()
+			active_dimensions = get_dimensions()[0]
+			for dim in active_dimensions:
+				dimensions_dict[dim.fieldname] = self.get(dim.fieldname)
+			self.make_exchange_gain_loss_journal(dimensions_dict=dimensions_dict)
 
 		self.make_advance_gl_entries(cancel=cancel)
 
