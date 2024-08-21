@@ -145,6 +145,27 @@ erpnext.buying = {
 				});
 			}
 
+
+			company() {
+				super.company()
+				var me =this
+				if (this.frm.doc.company) {
+					frappe.call({
+						method: "erpnext.setup.doctype.company.company.get_default_company_address",
+						args: { name: this.frm.doc.company, existing_address: this.frm.doc.billing_address || "" },
+						debounce: 2000,
+						callback: function (r) {
+							if (r.message) {
+								me.frm.set_value("billing_address", r.message);
+							} else {
+								me.frm.set_value("billing_address", "");
+							}
+						},
+					});
+				}
+			}
+
+
 			supplier_address() {
 				erpnext.utils.get_address_display(this.frm);
 				erpnext.utils.set_taxes_from_address(this.frm, "supplier_address", "supplier_address", "supplier_address");
