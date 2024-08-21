@@ -71,9 +71,17 @@ erpnext.sales_common = {
 
 				if (this.frm.fields_dict["items"].grid.get_field("item_code")) {
 					this.frm.set_query("item_code", "items", function () {
+						const is_dynamic_customer_field =
+							me.frm.doc.quotation_to === "Customer" || me.frm.doc.lead_to === "Customer";
 						return {
 							query: "erpnext.controllers.queries.item_query",
-							filters: { is_sales_item: 1, customer: me.frm.doc.customer, has_variants: 0 },
+							filters: {
+								is_sales_item: 1,
+								customer: is_dynamic_customer_field
+									? me.frm.doc.party_name
+									: me.frm.doc.customer,
+								has_variants: 0,
+							},
 						};
 					});
 				}
