@@ -286,7 +286,7 @@ def get_or_create_tax_group(company_name, root_type):
 
 	tax_group_account.flags.ignore_links = True
 	tax_group_account.flags.ignore_validate = True
-	tax_group_account.insert(ignore_permissions=True)
+	tax_group_account.insert(ignore_permissions=True, ignore_if_duplicate=True)
 
 	tax_group_name = tax_group_account.name
 
@@ -301,4 +301,4 @@ def make_tax_category(tax_category):
 	tax_category["doctype"] = doctype
 	if not frappe.db.exists(doctype, tax_category["title"]):
 		doc = frappe.get_doc(tax_category)
-		doc.insert(ignore_permissions=True)
+		doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
