@@ -440,6 +440,7 @@ class GrossProfitGenerator:
 
 		if grouped_by_invoice:
 			buying_amount = 0
+			base_amount = 0
 
 		for row in reversed(self.si_list):
 			if self.filters.get("group_by") == "Monthly":
@@ -480,14 +481,26 @@ class GrossProfitGenerator:
 			else:
 				row.buying_amount = flt(self.get_buying_amount(row, row.item_code), self.currency_precision)
 
-			if grouped_by_invoice:
-				if row.indent == 1.0:
-					buying_amount += row.buying_amount
-				elif row.indent == 0.0:
-					row.buying_amount = buying_amount
-					buying_amount = 0
+			if grouped_by_invoice and row.indent == 0.0:
+				row.buying_amount = buying_amount
+				row.base_amount = base_amount
+				buying_amount = 0
+				base_amount = 0
 
 			# get buying rate
+			if flt(row.qty):
+				row.buying_rate = flt(row.buying_amount / flt(row.qty), self.float_precision)
+				row.base_rate = flt(row.base_amount / flt(row.qty), self.float_precision)
+			else:
+				if self.is_not_invoice_row(row):
+					row.buying_rate, row.base_rate = 0.0, 0.0
+
+			self.update_return_invoice(row)
+
+			if grouped_by_invoice and row.indent == 1.0:
+				buying_amount += row.buying_amount
+				base_amount += row.base_amount
+
 			if flt(row.qty):
 				row.buying_rate = flt(row.buying_amount / flt(row.qty), self.float_precision)
 				row.base_rate = flt(row.base_amount / flt(row.qty), self.float_precision)
@@ -508,34 +521,31 @@ class GrossProfitGenerator:
 			self.grouped.setdefault(row.get(scrub(self.filters.group_by)), []).append(row)
 
 		if self.grouped:
+			print(self.grouped)
 			self.get_average_rate_based_on_group_by()
+
+	def update_return_invoice(self, row):
+		if row.parent in self.returned_invoices and row.item_code in self.returned_invoices[row.parent]:
+			returned_item_rows = self.returned_invoices[row.parent][row.item_code]
+			for returned_item_row in returned_item_rows:
+				# returned_items 'qty' should be stateful
+				if returned_item_row.qty != 0:
+					if row.qty >= abs(returned_item_row.qty):
+						row.qty += returned_item_row.qty
+						returned_item_row.qty = 0
+					else:
+						row.qty = 0
+						returned_item_row.qty += row.qty
+
+				row.base_amount += flt(returned_item_row.base_amount, self.currency_precision)
+
+			row.buying_amount = flt(flt(row.qty) * flt(row.buying_rate), self.currency_precision)
 
 	def get_average_rate_based_on_group_by(self):
 		for key in list(self.grouped):
 			if self.filters.get("group_by") == "Invoice":
-				for row in self.grouped[key]:
-					if row.indent == 1.0:
-						if (
-							row.parent in self.returned_invoices
-							and row.item_code in self.returned_invoices[row.parent]
-						):
-							returned_item_rows = self.returned_invoices[row.parent][row.item_code]
-							for returned_item_row in returned_item_rows:
-								# returned_items 'qty' should be stateful
-								if returned_item_row.qty != 0:
-									if row.qty >= abs(returned_item_row.qty):
-										row.qty += returned_item_row.qty
-										returned_item_row.qty = 0
-									else:
-										row.qty = 0
-										returned_item_row.qty += row.qty
-								row.base_amount += flt(returned_item_row.base_amount, self.currency_precision)
-							row.buying_amount = flt(
-								flt(row.qty) * flt(row.buying_rate), self.currency_precision
-							)
-						if flt(row.qty) or row.base_amount:
-							row = self.set_average_rate(row)
-							self.grouped_data.append(row)
+				return
+
 			elif self.filters.get("group_by") == "Payment Term":
 				for i, row in enumerate(self.grouped[key]):
 					invoice_portion = 0
@@ -954,7 +964,6 @@ class GrossProfitGenerator:
 				"item_row": None,
 				"is_return": row.is_return,
 				"cost_center": row.cost_center,
-				"base_net_amount": frappe.db.get_value("Sales Invoice", row.parent, "base_net_total"),
 			}
 		)
 
