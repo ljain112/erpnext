@@ -57,6 +57,7 @@ from erpnext.controllers.print_settings import (
 	set_print_templates_for_taxes,
 )
 from erpnext.controllers.sales_and_purchase_return import validate_return
+from erpnext.controllers.tax_withholding_controller import TaxWithholdingController
 from erpnext.exceptions import InvalidCurrency
 from erpnext.setup.utils import get_exchange_rate
 from erpnext.stock.doctype.item.item import get_uom_conv_factor
@@ -94,7 +95,7 @@ force_item_fields = (
 )
 
 
-class AccountsController(TransactionBase):
+class AccountsController(TransactionBase, TaxWithholdingController):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
@@ -257,8 +258,6 @@ class AccountsController(TransactionBase):
 
 		if self.doctype == "Purchase Invoice":
 			self.calculate_paid_amount()
-			# apply tax withholding only if checked and applicable
-			self.set_tax_withholding()
 
 		with temporary_flag("company", self.company):
 			validate_regional(self)
@@ -269,6 +268,7 @@ class AccountsController(TransactionBase):
 
 		self.set_total_in_words()
 		self.set_default_letter_head()
+		self.validate_tax_withholding()
 
 	def set_default_letter_head(self):
 		if hasattr(self, "letter_head") and not self.letter_head:
@@ -283,6 +283,9 @@ class AccountsController(TransactionBase):
 				for field in fields:
 					if hasattr(item, field):
 						item.set(field, 0)
+
+	def before_save(self):
+		self.set_tax_withholding()
 
 	def before_cancel(self):
 		validate_einvoice_fields(self)
