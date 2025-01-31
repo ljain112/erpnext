@@ -478,6 +478,7 @@ frappe.ui.form.on("Payment Entry", {
 			$.each(
 				[
 					"party",
+					"party_name",
 					"party_balance",
 					"paid_from",
 					"paid_to",
