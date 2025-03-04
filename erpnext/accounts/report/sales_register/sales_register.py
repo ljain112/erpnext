@@ -414,11 +414,12 @@ def get_account_columns(invoice_list, include_payments):
 
 
 def get_invoices(filters, additional_query_columns):
-	si = frappe.qb.DocType("Sales Invoice")
+	doctype = "Sales Invoice"
+	si = frappe.qb.DocType(doctype)
 	query = (
 		frappe.qb.from_(si)
 		.select(
-			ConstantColumn("Sales Invoice").as_("doctype"),
+			ConstantColumn(doctype).as_("doctype"),
 			si.name,
 			si.posting_date,
 			si.debit_to,
@@ -439,7 +440,6 @@ def get_invoices(filters, additional_query_columns):
 			si.company,
 		)
 		.where(si.docstatus == 1)
-		.orderby(si.posting_date, si.name, order=Order.desc)
 	)
 
 	if additional_query_columns:
@@ -452,13 +452,20 @@ def get_invoices(filters, additional_query_columns):
 	if filters.get("customer_group"):
 		query = query.where(si.customer_group == filters.customer_group)
 
-	query = get_conditions(filters, query, "Sales Invoice")
-	query = apply_common_conditions(
-		filters, query, doctype="Sales Invoice", child_doctype="Sales Invoice Item"
-	)
+	query = get_conditions(filters, query, doctype)
+	query = apply_common_conditions(filters, query, doctype=doctype, child_doctype="Sales Invoice Item")
 
-	invoices = query.run(as_dict=True)
-	return invoices
+	from frappe.desk.reportview import build_match_conditions
+
+	query, params = query.walk()
+	match_conditions = build_match_conditions(doctype)
+
+	if match_conditions:
+		query += "and" + match_conditions
+
+	query += "ORDER BY posting_date DESC,name DESC"
+
+	return frappe.db.sql(query, params, as_dict=True, debug=True)
 
 
 def get_conditions(filters, query, doctype):
