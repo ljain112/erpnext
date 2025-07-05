@@ -23,7 +23,7 @@ class AdvancePaymentLedgerEntry(Document):
 		currency: DF.Link | None
 		delinked: DF.Check
 		event: DF.Data | None
-		unadjusted_amount: DF.Currency
+		voucher_detail_no: DF.Data | None
 		voucher_no: DF.DynamicLink | None
 		voucher_type: DF.Link | None
 	# end: auto-generated types

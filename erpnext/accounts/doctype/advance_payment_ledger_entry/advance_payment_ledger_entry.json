@@ -10,8 +10,8 @@
   "voucher_no",
   "against_voucher_type",
   "against_voucher_no",
+  "voucher_detail_no",
   "amount",
-  "unadjusted_amount",
   "currency",
   "event",
   "delinked"
@@ -79,10 +79,9 @@
    "read_only": 1
   },
   {
-   "description": "Amount which is yet to be adjusted",
-   "fieldname": "unadjusted_amount",
-   "fieldtype": "Currency",
-   "label": "Unadjusted Amount",
+   "fieldname": "voucher_detail_no",
+   "fieldtype": "Data",
+   "label": "Voucher Detail No",
    "read_only": 1
   }
  ],
@@ -90,7 +89,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-05 14:30:09.030494",
+ "modified": "2025-07-05 18:34:11.893768",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "Advance Payment Ledger Entry",

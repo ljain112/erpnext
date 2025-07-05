@@ -620,7 +620,7 @@ def update_reference_in_journal_entry(d, journal_entry, do_not_save=False):
 	Updates against document, if partial amount splits into rows
 	"""
 
-	# TODO: Update unadjusted amount for advance doctype
+	# TODO: advance entry
 	jv_detail = journal_entry.get("accounts", {"name": d["voucher_detail_no"]})[0]
 
 	rev_dr_or_cr = (
@@ -702,10 +702,6 @@ def update_reference_in_payment_entry(
 		"dimensions": d.dimensions,
 	}
 
-	advance_payment_doctypes = frappe.get_hooks("advance_payment_receivable_doctypes") + frappe.get_hooks(
-		"advance_payment_payable_doctypes"
-	)
-
 	# Update Reconciliation effect date in reference
 	reconciliation_takes_effect_on = frappe.get_cached_value(
 		"Company", payment_entry.company, "reconciliation_takes_effect_on"
@@ -732,21 +728,16 @@ def update_reference_in_payment_entry(
 		if d.allocated_amount <= existing_row.allocated_amount:
 			existing_row.allocated_amount -= d.allocated_amount
 
+			linked_advance_entry = frappe.db.get_value(
+				"Advance Payment Ledger Entry", {"voucher_detail_no": d.voucher_detail_no}, "name", pluck=True
+			)
 			new_row = payment_entry.append("references")
 			new_row.docstatus = 1
 			new_row.set_new_name()
 			for field in list(reference_details):
 				new_row.set(field, reference_details[field])
+			new_row.advance_payment_entry = linked_advance_entry
 			row = new_row
-
-			if existing_row.reference_doctype in advance_payment_doctypes:
-				update_unadjusted_amount_in_advance_entry(
-					existing_row.parenttype,
-					existing_row.parent,
-					existing_row.reference_doctype,
-					existing_row.reference_name,
-					d.allocated_amount,
-				)
 
 	else:
 		new_row = payment_entry.append("references")
@@ -785,24 +776,6 @@ def update_reference_in_payment_entry(
 		payment_entry.save(ignore_permissions=True)
 
 	return row
-
-
-def update_unadjusted_amount_in_advance_entry(
-	voucher_type, voucher_no, against_voucher_type, against_voucher_no, adj_amount
-):
-	adv = frappe.qb.DocType("Advance Payment Ledger Entry")
-
-	(
-		frappe.qb.update(adv)
-		.set(adv.unadjusted_amount, adv.unadjusted_amount + adj_amount)
-		.where(
-			(adv.voucher_type == voucher_type)
-			& (adv.voucher_no == voucher_no)
-			& (adv.against_voucher_type == against_voucher_type)
-			& (adv.against_voucher_no == against_voucher_no)
-		)
-		.run()
-	)
 
 
 def cancel_exchange_gain_loss_journal(
@@ -1983,7 +1956,7 @@ def delink_original_entry(pl_entry, partial_cancel=False):
 	if pl_entry.doctype == "Advance Payment Ledger Entry":
 		adv = qb.DocType("Advance Payment Ledger Entry")
 
-		(
+		query = (
 			qb.update(adv)
 			.set(adv.delinked, 1)
 			.set(adv.event, "Cancel")
@@ -1993,8 +1966,11 @@ def delink_original_entry(pl_entry, partial_cancel=False):
 			.where(adv.voucher_no == pl_entry.voucher_no)
 			.where(adv.against_voucher_type == pl_entry.against_voucher_type)
 			.where(adv.against_voucher_no == pl_entry.against_voucher_no)
-			.run()
 		)
+		if partial_cancel:
+			query = query.where(adv.voucher_detail_no == adv.voucher_detail_no)
+
+		query.run()
 
 	else:
 		ple = qb.DocType("Payment Ledger Entry")

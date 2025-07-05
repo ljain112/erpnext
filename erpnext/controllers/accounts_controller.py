@@ -2214,6 +2214,7 @@ class AccountsController(TransactionBase):
 				(adv.against_voucher_type == self.doctype)
 				& (adv.against_voucher_no == self.name)
 				& (adv.company == self.company)
+				& (adv.amount < 0)
 			)
 			.groupby(adv.against_voucher_no, adv.against_voucher_type, adv.company)
 			.run(as_dict=True)

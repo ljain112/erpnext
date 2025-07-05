@@ -1451,6 +1451,7 @@ class PaymentEntry(AccountsController):
 						{
 							"against_voucher_type": d.reference_doctype,
 							"against_voucher": d.reference_name,
+							"voucher_detail_no": d.name,
 						}
 					)
 				else:
@@ -1626,6 +1627,20 @@ class PaymentEntry(AccountsController):
 				"against_voucher": self.name,
 			}
 		)
+
+		if invoice.advance_payment_entry:
+			linked_advance_entry = frappe.db.get_value(
+				"Advance Payment Ledger Entry",
+				invoice.advance_payment_entry,
+				["against_voucher_type", "against_voucher_no"],
+				as_dict=True,
+			)
+			args_dict.update(
+				{
+					"against_voucher_type": linked_advance_entry.against_voucher_type,
+					"against_voucher": linked_advance_entry.against_voucher_no,
+				}
+			)
 		gle = self.get_gl_dict(
 			args_dict,
 			item=self,

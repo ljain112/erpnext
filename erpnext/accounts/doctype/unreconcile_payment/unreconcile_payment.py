@@ -190,7 +190,6 @@ def get_advance_linked_payments_for_doc(
 		.where(ple.voucher_no == docname)
 		.where(ple.voucher_type == doctype)
 		.where(ple.company == company)
-		.where(ple.unadjusted_amount < 0)
 		.groupby(ple.against_voucher_no)
 	)
 
