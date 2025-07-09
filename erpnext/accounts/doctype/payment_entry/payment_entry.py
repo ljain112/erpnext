@@ -2511,28 +2511,12 @@ def get_outstanding_reference_documents(args, validate=False):
 
 def split_invoices_based_on_payment_terms(outstanding_invoices, company) -> list:
 	"""Split a list of invoices based on their payment terms."""
-	exc_rates = get_currency_data(outstanding_invoices, company)
-	invoices = set()
-	voucher_type = None
-
-	for entry in outstanding_invoices:
-		if entry.voucher_type in ["Sales Invoice", "Purchase Invoice"]:
-			invoices.add(entry.voucher_no)
-			voucher_type = entry.voucher_type
-
-	payment_terms_templates_map = frappe._dict(
-		frappe.db.get_all(
-			voucher_type,
-			filters={"name": ["in", invoices]},
-			fields=["name", "payment_terms_template"],
-			as_list=True,
-		)
-	)
+	invoice_details = get_invoice_date(outstanding_invoices, company)
 
 	outstanding_invoices_after_split = []
 	for entry in outstanding_invoices:
-		if payment_term_template := payment_terms_templates_map.get(entry.voucher_no):
-			split_rows = get_split_invoice_rows(entry, payment_term_template, exc_rates)
+		if payment_term_template := invoice_details.get(entry.voucher_no, {}).get("payment_terms_template"):
+			split_rows = get_split_invoice_rows(entry, payment_term_template, invoice_details)
 			if not split_rows:
 				continue
 
@@ -2552,26 +2536,33 @@ def split_invoices_based_on_payment_terms(outstanding_invoices, company) -> list
 	return outstanding_invoices_after_split
 
 
-def get_currency_data(outstanding_invoices: list, company: str | None = None) -> dict:
+def get_invoice_date(outstanding_invoices: list, company: str | None = None) -> dict:
 	"""Get currency and conversion data for a list of invoices."""
-	exc_rates = frappe._dict()
-	company_currency = frappe.db.get_value("Company", company, "default_currency") if company else None
+	invoice_details = frappe._dict()
+	company_currency = frappe.get_cached_value("Company", company, "default_currency") if company else None
 
 	for doctype in ["Sales Invoice", "Purchase Invoice"]:
 		invoices = [x.voucher_no for x in outstanding_invoices if x.voucher_type == doctype]
 		for x in frappe.db.get_all(
 			doctype,
 			filters={"name": ["in", invoices]},
-			fields=["name", "currency", "conversion_rate", "party_account_currency"],
+			fields=[
+				"name",
+				"currency",
+				"conversion_rate",
+				"party_account_currency",
+				"payment_terms_template",
+			],
 		):
-			exc_rates[x.name] = frappe._dict(
+			invoice_details[x.name] = frappe._dict(
 				conversion_rate=x.conversion_rate,
 				currency=x.currency,
 				party_account_currency=x.party_account_currency,
 				company_currency=company_currency,
+				payment_terms_template=x.payment_terms_template,
 			)
 
-	return exc_rates
+	return invoice_details
 
 
 def get_split_invoice_rows(invoice: dict, payment_term_template: str, exc_rates: dict) -> list:
