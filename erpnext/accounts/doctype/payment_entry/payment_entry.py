@@ -2553,27 +2553,35 @@ def get_invoice_date(outstanding_invoices: list, company: str | None = None) -> 
 	"""Get currency and conversion data for a list of invoices."""
 	invoice_details = frappe._dict()
 	company_currency = frappe.get_cached_value("Company", company, "default_currency") if company else None
+	doctype = None
+	invoices = set()
 
-	for doctype in ["Sales Invoice", "Purchase Invoice"]:
-		invoices = [x.voucher_no for x in outstanding_invoices if x.voucher_type == doctype]
-		for x in frappe.db.get_all(
-			doctype,
-			filters={"name": ["in", invoices]},
-			fields=[
-				"name",
-				"currency",
-				"conversion_rate",
-				"party_account_currency",
-				"payment_terms_template",
-			],
-		):
-			invoice_details[x.name] = frappe._dict(
-				conversion_rate=x.conversion_rate,
-				currency=x.currency,
-				party_account_currency=x.party_account_currency,
-				company_currency=company_currency,
-				payment_terms_template=x.payment_terms_template,
-			)
+	for x in outstanding_invoices:
+		if x.voucher_type in ["Sales Invoice", "Purchase Invoice"]:
+			voucher_type = x.voucher_type
+			invoices.add(x.voucher_no)
+
+	if not voucher_type:
+		return
+
+	for x in frappe.db.get_all(
+		doctype,
+		filters={"name": ["in", invoices]},
+		fields=[
+			"name",
+			"currency",
+			"conversion_rate",
+			"party_account_currency",
+			"payment_terms_template",
+		],
+	):
+		invoice_details[x.name] = frappe._dict(
+			conversion_rate=x.conversion_rate,
+			currency=x.currency,
+			party_account_currency=x.party_account_currency,
+			company_currency=company_currency,
+			payment_terms_template=x.payment_terms_template,
+		)
 
 	return invoice_details
 
