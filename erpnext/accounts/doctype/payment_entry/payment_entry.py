@@ -2894,7 +2894,7 @@ def get_reference_details(
 			fields=["payment_type", "party_type"],
 		)[0]:
 			payment_type = reverse_payment_details.payment_type
-			account_type = frappe.db.get_value(
+			account_type = frappe.get_cached_value(
 				"Party Type", reverse_payment_details.party_type, "account_type"
 			)
 		exchange_rate = 1
