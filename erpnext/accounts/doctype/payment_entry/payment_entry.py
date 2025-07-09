@@ -2513,9 +2513,22 @@ def split_invoices_based_on_payment_terms(outstanding_invoices, company) -> list
 	"""Split a list of invoices based on their payment terms."""
 	invoice_details = get_invoice_date(outstanding_invoices, company)
 
+	payment_term_templates = set(
+		d.payment_terms_template for d in invoice_details.values() if d.payment_terms_template
+	)
+	payment_term_templates_map = frappe._dict(
+		frappe.db.get_all(
+			"Payment Terms Template",
+			filters={"name": ["in", payment_term_templates]},
+			fields=["name", "allocate_payment_based_on_payment_terms"],
+			as_list=True,
+		)
+	)
+
 	outstanding_invoices_after_split = []
 	for entry in outstanding_invoices:
-		if payment_term_template := invoice_details.get(entry.voucher_no, {}).get("payment_terms_template"):
+		payment_term_template = invoice_details.get(entry.voucher_no, {}).get("payment_terms_template")
+		if payment_term_template and payment_term_templates_map.get("payment_term_template"):
 			split_rows = get_split_invoice_rows(entry, payment_term_template, invoice_details)
 			if not split_rows:
 				continue
@@ -2568,13 +2581,6 @@ def get_invoice_date(outstanding_invoices: list, company: str | None = None) -> 
 def get_split_invoice_rows(invoice: dict, payment_term_template: str, exc_rates: dict) -> list:
 	"""Split invoice based on its payment schedule table."""
 	split_rows = []
-	allocate_payment_based_on_payment_terms = frappe.db.get_value(
-		"Payment Terms Template", payment_term_template, "allocate_payment_based_on_payment_terms"
-	)
-
-	if not allocate_payment_based_on_payment_terms:
-		return [invoice]
-
 	payment_schedule = frappe.get_all(
 		"Payment Schedule", filters={"parent": invoice.voucher_no}, fields=["*"], order_by="due_date"
 	)
