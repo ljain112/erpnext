@@ -2443,22 +2443,26 @@ def get_outstanding_reference_documents(args, validate=False):
 			vouchers=args.get("vouchers") or None,
 		)
 
-		outstanding_invoices = split_invoices_based_on_payment_terms(
-			outstanding_invoices, args.get("company")
-		)
-
 		for d in outstanding_invoices:
 			d["exchange_rate"] = 1
 			if party_account_currency != company_currency:
 				if d.voucher_type in frappe.get_hooks("invoice_doctypes"):
-					d["exchange_rate"] = frappe.db.get_value(d.voucher_type, d.voucher_no, "conversion_rate")
+					fields = ["conversion_rate"]
+					if d.voucher_type in ("Purchase Invoice"):
+						fields.append("bill_no")
+
+					party_details = frappe.db.get_value(d.voucher_type, d.voucher_no, fields, as_dict=True)
+					d["exchange_rate"] = party_details.get("conversion_rate")
+					d["bill_no"] = party_details.get("bill_no")
+
 				elif d.voucher_type == "Journal Entry":
 					d["exchange_rate"] = get_exchange_rate(
 						party_account_currency, company_currency, d.posting_date
 					)
-			if d.voucher_type in ("Purchase Invoice"):
-				d["bill_no"] = frappe.db.get_value(d.voucher_type, d.voucher_no, "bill_no")
 
+		outstanding_invoices = split_invoices_based_on_payment_terms(
+			outstanding_invoices, args.get("company")
+		)
 		# Get negative outstanding sales /purchase invoices
 		if args.get("party_type") != "Employee":
 			negative_outstanding_invoices = get_negative_outstanding_invoices(
@@ -2610,6 +2614,8 @@ def get_split_invoice_rows(invoice: dict, payment_term_template: str, exc_rates:
 					"payment_term_outstanding": payment_term_outstanding,
 					"payment_amount": payment_term.payment_amount,
 					"payment_term": payment_term.payment_term,
+					"exchange_rate": invoice.exchange_rate,
+					"bill_no": invoice.bill_no,
 				}
 			)
 		)
