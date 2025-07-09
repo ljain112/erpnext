@@ -2781,14 +2781,14 @@ def get_negative_outstanding_invoices(
 def get_party_details(company, party_type, party, date, cost_center=None):
 	bank_account = ""
 	party_bank_account = ""
+	_party_name = "title" if party_type == "Shareholder" else party_type.lower() + "_name"
 
-	if not frappe.db.exists(party_type, party):
+	party_details = frappe.db.get_values(party_type, party, ["name", _party_name], as_dict=True)
+	if not party_details:
 		frappe.throw(_("{0} {1} does not exist").format(_(party_type), party))
 
 	party_account = get_party_account(party_type, party, company)
 	account_currency = get_account_currency(party_account)
-	_party_name = "title" if party_type == "Shareholder" else party_type.lower() + "_name"
-	party_name = frappe.db.get_value(party_type, party, _party_name)
 
 	if party_type in ["Customer", "Supplier"]:
 		party_bank_account = get_party_bank_account(party_type, party)
@@ -2796,7 +2796,7 @@ def get_party_details(company, party_type, party, date, cost_center=None):
 
 	return {
 		"party_account": party_account,
-		"party_name": party_name,
+		"party_name": party_details.get(_party_name),
 		"party_account_currency": account_currency,
 		"party_bank_account": party_bank_account,
 		"bank_account": bank_account,
