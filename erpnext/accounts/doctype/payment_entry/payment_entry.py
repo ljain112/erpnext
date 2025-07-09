@@ -234,7 +234,7 @@ class PaymentEntry(AccountsController):
 			self.is_opening = "No"
 			return
 
-		if not frappe.db.get_value(
+		if not frappe.get_cached_value(
 			"Company", self.company, "book_advance_payments_in_separate_party_account"
 		):
 			self.is_opening = "No"
@@ -1389,7 +1389,7 @@ class PaymentEntry(AccountsController):
 		else:
 			against_account = self.paid_from
 
-		party_account_type = frappe.db.get_value("Party Type", self.party_type, "account_type")
+		party_account_type = frappe.get_cached_value("Party Type", self.party_type, "account_type")
 
 		party_gl_dict = self.get_gl_dict(
 			{
