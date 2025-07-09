@@ -2508,26 +2508,39 @@ def get_outstanding_reference_documents(args, validate=False):
 def split_invoices_based_on_payment_terms(outstanding_invoices, company) -> list:
 	"""Split a list of invoices based on their payment terms."""
 	exc_rates = get_currency_data(outstanding_invoices, company)
+	invoices = set()
+	voucher_type = None
+
+	for entry in outstanding_invoices:
+		if entry.voucher_type in ["Sales Invoice", "Purchase Invoice"]:
+			invoices.add(entry.voucher_no)
+			voucher_type = entry.voucher_type
+
+	payment_terms_templates_map = frappe._dict(
+		frappe.db.get_all(
+			voucher_type,
+			filters={"name": ["in", invoices]},
+			fields=["name", "payment_terms_template"],
+			as_list=True,
+		)
+	)
 
 	outstanding_invoices_after_split = []
 	for entry in outstanding_invoices:
-		if entry.voucher_type in ["Sales Invoice", "Purchase Invoice"]:
-			if payment_term_template := frappe.db.get_value(
-				entry.voucher_type, entry.voucher_no, "payment_terms_template"
-			):
-				split_rows = get_split_invoice_rows(entry, payment_term_template, exc_rates)
-				if not split_rows:
-					continue
-
-				if len(split_rows) > 1:
-					frappe.msgprint(
-						_("Splitting {0} {1} into {2} rows as per Payment Terms").format(
-							_(entry.voucher_type), frappe.bold(entry.voucher_no), len(split_rows)
-						),
-						alert=True,
-					)
-				outstanding_invoices_after_split += split_rows
+		if payment_term_template := payment_terms_templates_map.get(entry.voucher_no):
+			split_rows = get_split_invoice_rows(entry, payment_term_template, exc_rates)
+			if not split_rows:
 				continue
+
+			if len(split_rows) > 1:
+				frappe.msgprint(
+					_("Splitting {0} {1} into {2} rows as per Payment Terms").format(
+						_(entry.voucher_type), frappe.bold(entry.voucher_no), len(split_rows)
+					),
+					alert=True,
+				)
+			outstanding_invoices_after_split += split_rows
+			continue
 
 		# If not an invoice or no payment terms template, add as it is
 		outstanding_invoices_after_split.append(entry)
