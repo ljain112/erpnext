@@ -521,11 +521,11 @@ class PaymentEntry(AccountsController):
 				frappe.throw(_("Party is mandatory"))
 
 			_party_name = "title" if self.party_type == "Shareholder" else self.party_type.lower() + "_name"
+			meta = frappe.get_meta(self.party_type)
+			if not meta.has_field(_party_name):
+				_party_name = "name"
 
-			if frappe.db.has_column(self.party_type, _party_name):
-				self.party_name = frappe.db.get_value(self.party_type, self.party, _party_name)
-			else:
-				self.party_name = frappe.db.get_value(self.party_type, self.party, "name")
+			self.party_name = frappe.db.get_value(self.party_type, self.party, _party_name)
 
 		if self.party:
 			if self.party_type == "Employee":
