@@ -683,13 +683,13 @@ def get_allowance_for(
 	if qty_or_amount == "qty" and not qty_allowance:
 		if global_qty_allowance is None:
 			global_qty_allowance = flt(
-				frappe.get_cached_value("Stock Settings", None, "over_delivery_receipt_allowance")
+				frappe.get_single_value("Stock Settings", "over_delivery_receipt_allowance")
 			)
 		qty_allowance = global_qty_allowance
 	elif qty_or_amount == "amount" and not over_billing_allowance:
 		if global_amount_allowance is None:
 			global_amount_allowance = flt(
-				frappe.get_cached_value("Accounts Settings", None, "over_billing_allowance")
+				frappe.get_single_value("Accounts Settings", "over_billing_allowance")
 			)
 		over_billing_allowance = global_amount_allowance
 

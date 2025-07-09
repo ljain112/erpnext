@@ -270,9 +270,8 @@ class Account(NestedSet):
 		if not doc_before_save or doc_before_save.freeze_account == self.freeze_account:
 			return
 
-		frozen_accounts_modifier = frappe.get_cached_value(
-			"Accounts Settings", "Accounts Settings", "frozen_accounts_modifier"
-		)
+		frozen_accounts_modifier = frappe.get_single_value("Accounts Settings", "frozen_accounts_modifier")
+
 		if not frozen_accounts_modifier or frozen_accounts_modifier not in frappe.get_roles():
 			throw(_("You are not authorized to set Frozen value"))
 

@@ -398,9 +398,7 @@ def update_outstanding_amt(
 def validate_frozen_account(account, adv_adj=None):
 	frozen_account = frappe.get_cached_value("Account", account, "freeze_account")
 	if frozen_account == "Yes" and not adv_adj:
-		frozen_accounts_modifier = frappe.get_cached_value(
-			"Accounts Settings", None, "frozen_accounts_modifier"
-		)
+		frozen_accounts_modifier = frappe.get_single_value("Accounts Settings", "frozen_accounts_modifier")
 
 		if not frozen_accounts_modifier:
 			frappe.throw(_("Account {0} is frozen").format(account))
