@@ -2445,20 +2445,26 @@ def get_outstanding_reference_documents(args, validate=False):
 
 		for d in outstanding_invoices:
 			d["exchange_rate"] = 1
-			if party_account_currency != company_currency:
-				if d.voucher_type in frappe.get_hooks("invoice_doctypes"):
-					fields = ["conversion_rate"]
-					if d.voucher_type in ("Purchase Invoice"):
-						fields.append("bill_no")
+			fields = []
+			if d.voucher_type == "Journal Entry":
+				d["exchange_rate"] = get_exchange_rate(
+					party_account_currency, company_currency, d.posting_date
+				)
 
-					party_details = frappe.db.get_value(d.voucher_type, d.voucher_no, fields, as_dict=True)
-					d["exchange_rate"] = party_details.get("conversion_rate")
-					d["bill_no"] = party_details.get("bill_no")
+			if d.voucher_type in frappe.get_hooks("invoice_doctypes"):
+				if party_account_currency != company_currency:
+					fields.append("conversion_rate")
 
-				elif d.voucher_type == "Journal Entry":
-					d["exchange_rate"] = get_exchange_rate(
-						party_account_currency, company_currency, d.posting_date
-					)
+			if d.voucher_type in ("Purchase Invoice"):
+				fields.append("bill_no")
+
+			if fields:
+				party_details = frappe.db.get_value(d.voucher_type, d.voucher_no, fields, as_dict=True)
+				if party_details.get("conversion_rate"):
+					d["exchange_rate"] = party_details.conversion_rate
+
+				if party_details.get("bill_no"):
+					d["bill_no"] = party_details.bill_no
 
 		outstanding_invoices = split_invoices_based_on_payment_terms(
 			outstanding_invoices, args.get("company")
