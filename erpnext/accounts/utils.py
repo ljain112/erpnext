@@ -721,24 +721,18 @@ def update_reference_in_payment_entry(
 
 			new_row = payment_entry.append("references")
 			new_row.docstatus = 1
-			new_row.set_new_name()
 			for field in list(reference_details):
 				new_row.set(field, reference_details[field])
-			row = new_row
 
 			if existing_row.reference_doctype in advance_payment_doctypes:
-				update_unadjusted_amount_in_advance_entry(
-					existing_row.parenttype,
-					existing_row.parent,
-					existing_row.reference_doctype,
-					existing_row.reference_name,
-					d.allocated_amount,
-				)
+				new_row.advance_voucher_type = existing_row.reference_doctype
+				new_row.advance_voucher_no = existing_row.reference_name
+
+			row = new_row
 
 	else:
 		new_row = payment_entry.append("references")
 		new_row.docstatus = 1
-		new_row.set_new_name()
 		new_row.update(reference_details)
 		row = new_row
 
@@ -772,24 +766,6 @@ def update_reference_in_payment_entry(
 		payment_entry.save(ignore_permissions=True)
 
 	return row
-
-
-def update_unadjusted_amount_in_advance_entry(
-	voucher_type, voucher_no, against_voucher_type, against_voucher_no, adj_amount
-):
-	adv = frappe.qb.DocType("Advance Payment Ledger Entry")
-
-	(
-		frappe.qb.update(adv)
-		.set(adv.unadjusted_amount, adv.unadjusted_amount + adj_amount)
-		.where(
-			(adv.voucher_type == voucher_type)
-			& (adv.voucher_no == voucher_no)
-			& (adv.against_voucher_type == against_voucher_type)
-			& (adv.against_voucher_no == against_voucher_no)
-		)
-		.run()
-	)
 
 
 def get_reconciliation_effect_date(reference, company, posting_date):
@@ -966,21 +942,25 @@ def update_accounting_ledgers_after_reference_removal(
 		ple_update_query = ple_update_query.where(ple.voucher_no == payment_name)
 	ple_update_query.run()
 
-	# Advance Payment
-	adv = qb.DocType("Advance Payment Ledger Entry")
-	adv_ple_update_query = (
-		qb.update(adv)
-		.set(adv.delinked, 1)
-		.set(adv.modified, now())
-		.set(adv.modified_by, frappe.session.user)
+	# Advance Payment Ledger
+	ple_update_query = (
+		qb.update(ple)
+		.set(ple.advance_voucher_type, "")
+		.set(ple.advance_voucher_no, "")
+		.set(ple.modified, now())
+		.set(ple.modified_by, frappe.session.user)
 		.where(
-			(adv.against_voucher_type == ref_type) & (adv.against_voucher_no == ref_no) & (adv.delinked == 0)
+			(ple.advance_voucher_type == ref_type)
+			& (ple.advance_voucher_no == ref_no)
+			& (ple.delinked == 0)
+			& (ple.voucher_no == ple.against_voucher_no)
 		)
 	)
 
 	if payment_name:
-		adv_ple_update_query = adv_ple_update_query.where(adv.voucher_no == payment_name)
-	adv_ple_update_query.run()
+		ple_update_query = ple_update_query.where(ple.voucher_no == payment_name)
+
+	ple_update_query.run()
 
 
 def remove_ref_from_advance_section(ref_doc: object = None):
@@ -1541,11 +1521,6 @@ def _delete_pl_entries(voucher_type, voucher_no):
 	qb.from_(ple).delete().where((ple.voucher_type == voucher_type) & (ple.voucher_no == voucher_no)).run()
 
 
-def _delete_adv_pl_entries(voucher_type, voucher_no):
-	adv = qb.DocType("Advance Payment Ledger Entry")
-	qb.from_(adv).delete().where((adv.voucher_type == voucher_type) & (adv.voucher_no == voucher_no)).run()
-
-
 def _delete_gl_entries(voucher_type, voucher_no):
 	gle = qb.DocType("GL Entry")
 	qb.from_(gle).delete().where((gle.voucher_type == voucher_type) & (gle.voucher_no == voucher_no)).run()
@@ -1851,9 +1826,6 @@ def get_payment_ledger_entries(gl_entries, cancel=0):
 
 		dr_or_cr = 0
 		account_type = None
-		advance_payment_doctypes = frappe.get_hooks("advance_payment_receivable_doctypes") + frappe.get_hooks(
-			"advance_payment_payable_doctypes"
-		)
 		for gle in gl_entries:
 			if gle.account in receivable_or_payable_accounts:
 				account_type = get_account_type(gle.account)
@@ -1868,16 +1840,10 @@ def get_payment_ledger_entries(gl_entries, cancel=0):
 					dr_or_cr *= -1
 					dr_or_cr_account_currency *= -1
 
-				is_advance_doctype = gle.against_voucher_type in advance_payment_doctypes
-
 				against_voucher_type = (
 					gle.against_voucher_type if gle.against_voucher_type else gle.voucher_type
 				)
 				against_voucher_no = gle.against_voucher if gle.against_voucher else gle.voucher_no
-
-				if is_advance_doctype:
-					against_voucher_type = gle.voucher_type
-					against_voucher_no = gle.voucher_no
 
 				ple = frappe._dict(
 					doctype="Payment Ledger Entry",
@@ -1895,6 +1861,8 @@ def get_payment_ledger_entries(gl_entries, cancel=0):
 					voucher_detail_no=gle.voucher_detail_no,
 					against_voucher_type=against_voucher_type,
 					against_voucher_no=against_voucher_no,
+					advance_voucher_type=gle.advance_voucher_type,
+					advance_voucher_no=gle.advance_voucher_no,
 					account_currency=gle.account_currency,
 					amount=dr_or_cr,
 					amount_in_account_currency=dr_or_cr_account_currency,
@@ -1907,33 +1875,10 @@ def get_payment_ledger_entries(gl_entries, cancel=0):
 					for dimension in dimensions_and_defaults[0]:
 						ple[dimension.fieldname] = gle.get(dimension.fieldname)
 
-				if is_advance_doctype:
-					# create advance entry
-					adv = get_advance_ledger_entry(gle, cancel, dr_or_cr_account_currency)
-
-					ple_map.append(adv)
-
 				ple_map.append(ple)
 
+	print(ple_map)
 	return ple_map
-
-
-def get_advance_ledger_entry(gle, cancel, amount):
-	return frappe._dict(
-		doctype="Advance Payment Ledger Entry",
-		company=gle.company,
-		voucher_type=gle.voucher_type,
-		voucher_no=gle.voucher_no,
-		voucher_detail_no=gle.voucher_detail_no,
-		against_voucher_type=gle.against_voucher_type,
-		against_voucher_no=gle.against_voucher,
-		currency=gle.account_currency,
-		amount=amount,
-		unadjusted_amount=amount,
-		event="Cancel" if cancel else "Submit",
-		delinked=cancel,
-		remarks=gle.remarks,
-	)
 
 
 def create_payment_ledger_entry(
@@ -1955,13 +1900,16 @@ def create_payment_ledger_entry(
 			ple.submit()
 
 
-def update_voucher_outstanding(voucher_type, voucher_no, account, party_type, party):
-	if not voucher_type or not voucher_no:
+def update_advance_voucher_outstanding(voucher_type, voucher_no):
+	if voucher_type not in ["Purchase Order", "Sales Order"]:
 		return
 
-	if voucher_type in ["Purchase Order", "Sales Order"]:
-		ref_doc = frappe.get_lazy_doc(voucher_type, voucher_no)
-		ref_doc.set_total_advance_paid()
+	ref_doc = frappe.get_lazy_doc(voucher_type, voucher_no)
+	ref_doc.set_total_advance_paid()
+
+
+def update_voucher_outstanding(voucher_type, voucher_no, account, party_type, party):
+	if not voucher_type or not voucher_no:
 		return
 
 	if not (voucher_type in ["Sales Invoice", "Purchase Invoice", "Fees"] and party_type and party):
@@ -2010,46 +1958,31 @@ def delink_original_entry(pl_entry, partial_cancel=False):
 	if not pl_entry:
 		return
 
-	if pl_entry.doctype == "Advance Payment Ledger Entry":
-		adv = qb.DocType("Advance Payment Ledger Entry")
-
-		(
-			qb.update(adv)
-			.set(adv.delinked, 1)
-			.set(adv.event, "Cancel")
-			.set(adv.modified, now())
-			.set(adv.modified_by, frappe.session.user)
-			.where(adv.voucher_type == pl_entry.voucher_type)
-			.where(adv.voucher_no == pl_entry.voucher_no)
-			.where(adv.against_voucher_type == pl_entry.against_voucher_type)
-			.where(adv.against_voucher_no == pl_entry.against_voucher_no)
-			.run()
+	ple = qb.DocType("Payment Ledger Entry")
+	query = (
+		qb.update(ple)
+		.set(ple.delinked, True)
+		.set(ple.modified, now())
+		.set(ple.modified_by, frappe.session.user)
+		.where(
+			(ple.company == pl_entry.company)
+			& (ple.account_type == pl_entry.account_type)
+			& (ple.account == pl_entry.account)
+			& (ple.party_type == pl_entry.party_type)
+			& (ple.party == pl_entry.party)
+			& (ple.voucher_type == pl_entry.voucher_type)
+			& (ple.voucher_no == pl_entry.voucher_no)
+			& (ple.against_voucher_type == pl_entry.against_voucher_type)
+			& (ple.against_voucher_no == pl_entry.against_voucher_no)
+			& (ple.advance_voucher_type == pl_entry.advance_voucher_type)
+			& (ple.advance_voucher_no == pl_entry.advance_voucher_no)
 		)
+	)
 
-	else:
-		ple = qb.DocType("Payment Ledger Entry")
-		query = (
-			qb.update(ple)
-			.set(ple.delinked, True)
-			.set(ple.modified, now())
-			.set(ple.modified_by, frappe.session.user)
-			.where(
-				(ple.company == pl_entry.company)
-				& (ple.account_type == pl_entry.account_type)
-				& (ple.account == pl_entry.account)
-				& (ple.party_type == pl_entry.party_type)
-				& (ple.party == pl_entry.party)
-				& (ple.voucher_type == pl_entry.voucher_type)
-				& (ple.voucher_no == pl_entry.voucher_no)
-				& (ple.against_voucher_type == pl_entry.against_voucher_type)
-				& (ple.against_voucher_no == pl_entry.against_voucher_no)
-			)
-		)
+	if partial_cancel:
+		query = query.where(ple.voucher_detail_no == pl_entry.voucher_detail_no)
 
-		if partial_cancel:
-			query = query.where(ple.voucher_detail_no == pl_entry.voucher_detail_no)
-
-		query.run()
+	query.run()
 
 
 class QueryPaymentLedger:

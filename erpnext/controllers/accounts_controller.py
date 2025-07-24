@@ -382,15 +382,6 @@ class AccountsController(TransactionBase):
 					repost_doc.flags.ignore_links = True
 					repost_doc.save(ignore_permissions=True)
 
-	def _remove_advance_payment_ledger_entries(self):
-		adv = qb.DocType("Advance Payment Ledger Entry")
-		qb.from_(adv).delete().where(adv.voucher_type.eq(self.doctype) & adv.voucher_no.eq(self.name)).run()
-
-		if self.doctype in self.get_advance_payment_doctypes():
-			qb.from_(adv).delete().where(
-				adv.against_voucher_type.eq(self.doctype) & adv.against_voucher_no.eq(self.name)
-			).run()
-
 	def on_trash(self):
 		from erpnext.accounts.utils import delete_exchange_gain_loss_journal
 
@@ -421,8 +412,6 @@ class AccountsController(TransactionBase):
 			frappe.qb.from_(sle).delete().where(
 				(sle.voucher_type == self.doctype) & (sle.voucher_no == self.name)
 			).run()
-
-			self._remove_advance_payment_ledger_entries()
 
 	def remove_serial_and_batch_bundle(self):
 		bundles = frappe.get_all(
@@ -2212,25 +2201,25 @@ class AccountsController(TransactionBase):
 		return stock_items
 
 	def calculate_total_advance_from_ledger(self):
-		adv = frappe.qb.DocType("Advance Payment Ledger Entry")
-		return (
-			frappe.qb.from_(adv)
+		ple = frappe.qb.DocType("Payment Ledger Entry")
+		query = (
+			qb.from_(ple)
 			.select(
-				Abs(Sum(Case().when(adv.delinked == 0, adv.amount).else_(0))).as_("amount"),
-				adv.currency.as_("account_currency"),
+				Abs(Sum(ple.amount_in_account_currency)).as_("amount"),
+				ple.account_currency,
 			)
-			.where(
-				(adv.against_voucher_type == self.doctype)
-				& (adv.against_voucher_no == self.name)
-				& (adv.company == self.company)
-			)
-			.groupby(adv.against_voucher_no, adv.against_voucher_type, adv.company)
-			.run(as_dict=True)
+			.where(ple.company == self.company)
+			.where(ple.delinked == 0)
+			.where(ple.advance_voucher_type == self.doctype)
+			.where(ple.advance_voucher_no == self.name)
+			.groupby(ple.advance_voucher_no)
 		)
+
+		return query.run(as_dict=True)
 
 	def set_total_advance_paid(self):
 		advance = self.calculate_total_advance_from_ledger()
-		advance_paid, order_total = None, None
+		advance_paid, order_total = 0, 0
 
 		if advance:
 			advance = advance[0]
@@ -2263,8 +2252,7 @@ class AccountsController(TransactionBase):
 					).format(formatted_advance_paid, self.name, formatted_order_total)
 				)
 
-			self.db_set("advance_paid", advance_paid)
-
+		self.db_set("advance_paid", advance_paid)
 		self.set_advance_payment_status()
 
 	def set_advance_payment_status(self):

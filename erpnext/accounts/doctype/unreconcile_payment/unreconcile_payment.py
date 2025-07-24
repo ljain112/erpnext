@@ -7,13 +7,13 @@ import frappe
 from frappe import _, qb
 from frappe.model.document import Document
 from frappe.query_builder import Criterion
-from frappe.query_builder.functions import Abs, Sum
+from frappe.query_builder.functions import Abs, IfNull, Sum
 from frappe.utils.data import comma_and
 
 from erpnext.accounts.utils import (
 	cancel_exchange_gain_loss_journal,
-	get_advance_payment_doctypes,
 	unlink_ref_doc_from_payment_entries,
+	update_advance_voucher_outstanding,
 	update_voucher_outstanding,
 )
 
@@ -72,6 +72,7 @@ class UnreconcilePayment(Document):
 				alloc.party_type,
 				alloc.party,
 			)
+			update_advance_voucher_outstanding(alloc.reference_doctype, alloc.reference_name)
 
 			frappe.db.set_value("Unreconcile Payment Entries", alloc.name, "unlinked", True)
 
@@ -90,15 +91,7 @@ def doc_has_references(doctype: str | None = None, docname: str | None = None):
 			filters={"delinked": 0, "voucher_no": docname, "against_voucher_no": ["!=", docname]},
 		)
 
-		count += frappe.db.count(
-			"Advance Payment Ledger Entry",
-			filters={
-				"delinked": 0,
-				"voucher_no": docname,
-				"voucher_type": doctype,
-				"unadjusted_amount": ["<", 0],
-			},
-		)
+		# linked advance payment
 
 	return count
 
@@ -160,42 +153,37 @@ def get_linked_payments_for_doc(
 				.where(Criterion.all(criteria))
 				.groupby(ple.against_voucher_no)
 			)
-			res = query.run(as_dict=True)
 
-			if _dt == "Payment Entry":
-				# Add advance payments linked to this payment entry
-				res += get_advance_linked_payments_for_doc(company, doctype, docname)
+			advance_criteria = criteria = [
+				(ple.company == company),
+				(ple.delinked == 0),
+				(ple.voucher_no == _dn),
+				(ple.against_voucher_no == _dn),
+				(IfNull(ple.advance_voucher_type, "") != ""),
+			]
+
+			advance_query = (
+				qb.from_(ple)
+				.select(
+					ple.company,
+					ple.account,
+					ple.party_type,
+					ple.party,
+					ple.advance_voucher_type.as_("reference_doctype"),
+					ple.advance_voucher_no.as_("reference_name"),
+					Abs(Sum(ple.amount_in_account_currency)).as_("allocated_amount"),
+					ple.account_currency,
+				)
+				.where(Criterion.all(advance_criteria))
+				.having(qb.Field("allocated_amount") > 0)
+				.groupby(ple.advance_voucher_no)
+			)
+			query = query + advance_query
+			res = query.run(as_dict=True)
 
 			return res
 
 	return []
-
-
-def get_advance_linked_payments_for_doc(
-	company: str | None = None, doctype: str | None = None, docname: str | None = None
-) -> list:
-	if not (doctype and docname):
-		return []
-
-	ple = qb.DocType("Advance Payment Ledger Entry")
-	query = (
-		qb.from_(ple)
-		.select(
-			ple.company,
-			ple.against_voucher_type.as_("reference_doctype"),
-			ple.against_voucher_no.as_("reference_name"),
-			Abs(Sum(ple.amount)).as_("allocated_amount"),
-			ple.currency.as_("account_currency"),
-		)
-		.where(ple.delinked == 0)
-		.where(ple.voucher_no == docname)
-		.where(ple.voucher_type == doctype)
-		.where(ple.company == company)
-		.where(ple.unadjusted_amount < 0)
-		.groupby(ple.against_voucher_no)
-	)
-
-	return query.run(as_dict=True)
 
 
 @frappe.whitelist()

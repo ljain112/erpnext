@@ -299,7 +299,6 @@ class PaymentEntry(AccountsController):
 			"Repost Accounting Ledger Items",
 			"Unreconcile Payment",
 			"Unreconcile Payment Entries",
-			"Advance Payment Ledger Entry",
 		)
 		super().on_cancel()
 		self.update_payment_requests(cancel=True)
@@ -1440,23 +1439,27 @@ class PaymentEntry(AccountsController):
 				)
 			)
 
-			if self.book_advance_payments_in_separate_party_account:
-				if d.reference_doctype in advance_payment_doctypes:
-					# Upon reconciliation, whole ledger will be reposted. So, reference to SO/PO is fine
-					gle.update(
-						{
-							"against_voucher_type": d.reference_doctype,
-							"against_voucher": d.reference_name,
-						}
-					)
-				else:
-					# Do not reference Invoices while Advance is in separate party account
-					gle.update({"against_voucher_type": self.doctype, "against_voucher": self.name})
+			if d.reference_doctype in advance_payment_doctypes:
+				# Upon reconciliation, whole ledger will be reposted. So, reference to SO/PO is fine
+				gle.update(
+					{
+						"against_voucher_type": self.doctype,
+						"against_voucher": self.name,
+						"advance_voucher_type": d.reference_doctype,
+						"advance_voucher_no": d.reference_name,
+					}
+				)
+
+			elif self.book_advance_payments_in_separate_party_account:
+				# Do not reference Invoices while Advance is in separate party account
+				gle.update({"against_voucher_type": self.doctype, "against_voucher": self.name})
 			else:
 				gle.update(
 					{
 						"against_voucher_type": d.reference_doctype,
 						"against_voucher": d.reference_name,
+						"advance_voucher_type": d.advance_voucher_type,
+						"advance_voucher_no": d.advance_voucher_no,
 					}
 				)
 
@@ -1580,6 +1583,8 @@ class PaymentEntry(AccountsController):
 			{
 				"against_voucher_type": invoice.reference_doctype,
 				"against_voucher": invoice.reference_name,
+				"advance_voucher_type": invoice.advance_voucher_type,
+				"advance_voucher_no": invoice.advance_voucher_no,
 				"posting_date": posting_date,
 			}
 		)
@@ -1604,6 +1609,8 @@ class PaymentEntry(AccountsController):
 			{
 				"against_voucher_type": "Payment Entry",
 				"against_voucher": self.name,
+				"advance_voucher_type": invoice.advance_voucher_type,
+				"advance_voucher_no": invoice.advance_voucher_no,
 			}
 		)
 		gle = self.get_gl_dict(

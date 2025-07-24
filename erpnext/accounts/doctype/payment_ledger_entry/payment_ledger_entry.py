@@ -16,7 +16,7 @@ from erpnext.accounts.doctype.gl_entry.gl_entry import (
 	validate_balance_type,
 	validate_frozen_account,
 )
-from erpnext.accounts.utils import update_voucher_outstanding
+from erpnext.accounts.utils import update_advance_voucher_outstanding, update_voucher_outstanding
 from erpnext.exceptions import InvalidAccountDimensionError, MandatoryAccountDimensionError
 
 
@@ -32,6 +32,8 @@ class PaymentLedgerEntry(Document):
 		account: DF.Link | None
 		account_currency: DF.Link | None
 		account_type: DF.Literal["Receivable", "Payable"]
+		advance_voucher_no: DF.DynamicLink | None
+		advance_voucher_type: DF.Link | None
 		against_voucher_no: DF.DynamicLink | None
 		against_voucher_type: DF.Link | None
 		amount: DF.Currency
@@ -177,6 +179,13 @@ class PaymentLedgerEntry(Document):
 			update_voucher_outstanding(
 				self.against_voucher_type, self.against_voucher_no, self.account, self.party_type, self.party
 			)
+
+		if (
+			self.advance_voucher_type in ["Purchase Order", "Sales Order"]
+			and self.flags.update_outstanding == "Yes"
+			and not frappe.flags.is_reverse_depr_entry
+		):
+			update_advance_voucher_outstanding(self.advance_voucher_type, self.advance_voucher_no)
 
 
 def on_doctype_update():
