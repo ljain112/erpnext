@@ -20,6 +20,8 @@ def execute():
 		frappe.qb.update(ple)
 		.set(ple.against_voucher_type, ple.voucher_type)
 		.set(ple.against_voucher_no, ple.voucher_no)
+		.set(ple.advance_voucher_type, ple.against_voucher_type)
+		.set(ple.advance_voucher_no, ple.against_voucher_no)
 		.where(ple.against_voucher_type.isin(advance_payment_doctypes))
 		.run()
 	)
