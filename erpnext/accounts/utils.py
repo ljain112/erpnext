@@ -1877,7 +1877,6 @@ def get_payment_ledger_entries(gl_entries, cancel=0):
 
 				ple_map.append(ple)
 
-	print(ple_map)
 	return ple_map
 
 
