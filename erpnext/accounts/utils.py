@@ -2,7 +2,6 @@
 # License: GNU General Public License v3. See license.txt
 
 
-from collections import defaultdict
 from json import loads
 from typing import TYPE_CHECKING, Optional
 
@@ -12,7 +11,7 @@ from frappe import _, qb, throw
 from frappe.desk.reportview import build_match_conditions
 from frappe.model.meta import get_field_precision
 from frappe.query_builder import AliasedQuery, Case, Criterion, Table
-from frappe.query_builder.functions import Count, Max, Round, Sum
+from frappe.query_builder.functions import Count, IfNull, Max, Round, Sum
 from frappe.query_builder.utils import DocType
 from frappe.utils import (
 	add_days,
@@ -473,10 +472,11 @@ def reconcile_against_document(
 	Cancel PE or JV, Update against document, split if required and resubmit
 	"""
 	# To optimize making GL Entry for PE or JV with multiple references
-	reconciled_entries = defaultdict(list)
-	docs_to_update = set()
-
+	reconciled_entries = {}
 	for row in args:
+		if not reconciled_entries.get((row.voucher_type, row.voucher_no)):
+			reconciled_entries[(row.voucher_type, row.voucher_no)] = []
+
 		reconciled_entries[(row.voucher_type, row.voucher_no)].append(row)
 
 	for key, entries in reconciled_entries.items():
@@ -487,16 +487,6 @@ def reconcile_against_document(
 
 		reposting_rows = []
 		for entry in entries:
-			# ensure correct sequence of args
-			docs_to_update.add(
-				(
-					entry.against_voucher_type,
-					entry.against_voucher,
-					entry.account,
-					entry.party_type,
-					entry.party,
-				)
-			)
 			check_if_advance_entry_modified(entry)
 			validate_allocated_amount(entry)
 
@@ -536,11 +526,16 @@ def reconcile_against_document(
 			process_debit_credit_difference(gl_map)
 			create_payment_ledger_entry(gl_map, update_outstanding="No", cancel=0, adv_adj=1)
 
+		# Only update outstanding for newly linked vouchers
+		for entry in entries:
+			update_voucher_outstanding(
+				entry.against_voucher_type,
+				entry.against_voucher,
+				entry.account,
+				entry.party_type,
+				entry.party,
+			)
 		frappe.flags.ignore_party_validation = False
-
-	# Only update outstanding for newly linked vouchers
-	for entry in docs_to_update:
-		update_voucher_outstanding(*entry)
 
 
 def check_if_advance_entry_modified(args):
@@ -1908,10 +1903,9 @@ def update_advance_voucher_outstanding(voucher_type, voucher_no):
 
 
 def update_voucher_outstanding(voucher_type, voucher_no, account, party_type, party):
-	if not voucher_type or not voucher_no:
-		return
-
-	if not (voucher_type in ["Sales Invoice", "Purchase Invoice", "Fees"] and party_type and party):
+	if not (
+		voucher_type in ["Sales Invoice", "Purchase Invoice", "Fees"] and voucher_no and party_type and party
+	):
 		return
 
 	ple = frappe.qb.DocType("Payment Ledger Entry")
@@ -1973,8 +1967,8 @@ def delink_original_entry(pl_entry, partial_cancel=False):
 			& (ple.voucher_no == pl_entry.voucher_no)
 			& (ple.against_voucher_type == pl_entry.against_voucher_type)
 			& (ple.against_voucher_no == pl_entry.against_voucher_no)
-			& (ple.advance_voucher_type == pl_entry.advance_voucher_type)
-			& (ple.advance_voucher_no == pl_entry.advance_voucher_no)
+			& (IfNull(ple.advance_voucher_type, "") == IfNull(pl_entry.advance_voucher_type, ""))
+			& (IfNull(ple.advance_voucher_no, "") == IfNull(pl_entry.advance_voucher_no, ""))
 		)
 	)
 
