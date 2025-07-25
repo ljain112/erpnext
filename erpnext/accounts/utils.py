@@ -993,8 +993,10 @@ def remove_ref_doc_link_from_jv(
 	if linked_jv:
 		update_query = (
 			qb.update(jea)
-			.set(jea.reference_type, None)
-			.set(jea.reference_name, None)
+			.set(jea.reference_type, jea.advance_voucher_type)
+			.set(jea.reference_name, jea.advance_voucher_no)
+			.set(jea.advance_voucher_type, None)
+			.set(jea.advance_voucher_no, None)
 			.set(jea.modified, now())
 			.set(jea.modified_by, frappe.session.user)
 			.where((jea.reference_type == ref_type) & (jea.reference_name == ref_no))
@@ -1055,6 +1057,22 @@ def remove_ref_doc_link_from_pe(
 	# Update payment request amount
 	update_payment_requests_as_per_pe_references(reference_rows, cancel=True)
 
+	(
+		qb.update(per)
+		.set(per.reference_doctype, per.advance_voucher_type)
+		.set(per.reference_name, per.advance_voucher_no)
+		.set(per.advance_voucher_type, None)
+		.set(per.advance_voucher_no, None)
+		.set(per.modified, now())
+		.set(per.modified_by, frappe.session.user)
+		.where(per.name.isin(row_names))
+		.where(per.parenttype == "Payment Entry")
+		.where(per.reference_doctype == ref_type)
+		.where(per.reference_name == ref_no)
+		.where(IfNull(per.advance_voucher_no, "") != "")
+		.run()
+	)
+
 	# Update allocated amounts and modified fields in one go
 	(
 		qb.update(per)
@@ -1063,6 +1081,8 @@ def remove_ref_doc_link_from_pe(
 		.set(per.modified_by, frappe.session.user)
 		.where(per.name.isin(row_names))
 		.where(per.parenttype == "Payment Entry")
+		.where(per.reference_doctype == ref_type)
+		.where(per.reference_name == ref_no)
 		.run()
 	)
 
