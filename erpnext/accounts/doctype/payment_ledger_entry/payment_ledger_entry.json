@@ -160,8 +160,6 @@
   {
    "fieldname": "advance_voucher_no",
    "fieldtype": "Dynamic Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
    "label": "Against Advance Voucher No",
    "options": "advance_voucher_type",
    "search_index": 1
@@ -177,7 +175,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-24 16:02:02.881891",
+ "modified": "2025-07-25 04:33:30.178309",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "Payment Ledger Entry",
