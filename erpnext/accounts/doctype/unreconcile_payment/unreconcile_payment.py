@@ -90,8 +90,15 @@ def doc_has_references(doctype: str | None = None, docname: str | None = None):
 			"Payment Ledger Entry",
 			filters={"delinked": 0, "voucher_no": docname, "against_voucher_no": ["!=", docname]},
 		)
-
-		# linked advance payment
+		count += frappe.db.count(
+			"Payment Ledger Entry",
+			filters={
+				"delinked": 0,
+				"voucher_no": docname,
+				"against_voucher_no": ["=", docname],
+				"advance_voucher_no": ["is", "set"],
+			},
+		)
 
 	return count
 
@@ -154,36 +161,42 @@ def get_linked_payments_for_doc(
 				.groupby(ple.against_voucher_no)
 			)
 
-			advance_criteria = criteria = [
-				(ple.company == company),
-				(ple.delinked == 0),
-				(ple.voucher_no == _dn),
-				(ple.against_voucher_no == _dn),
-				(IfNull(ple.advance_voucher_type, "") != ""),
-			]
-
-			advance_query = (
-				qb.from_(ple)
-				.select(
-					ple.company,
-					ple.account,
-					ple.party_type,
-					ple.party,
-					ple.advance_voucher_type.as_("reference_doctype"),
-					ple.advance_voucher_no.as_("reference_name"),
-					Abs(Sum(ple.amount_in_account_currency)).as_("allocated_amount"),
-					ple.account_currency,
-				)
-				.where(Criterion.all(advance_criteria))
-				.having(qb.Field("allocated_amount") > 0)
-				.groupby(ple.advance_voucher_no)
-			)
+			advance_query = get_advance_query(company, _dn, ple)
 			query = query + advance_query
 			res = query.run(as_dict=True)
 
 			return res
 
 	return []
+
+
+def get_advance_query(company, _dn, ple):
+	criteria = [
+		(ple.company == company),
+		(ple.delinked == 0),
+		(ple.voucher_no == _dn),
+		(ple.against_voucher_no == _dn),
+		(IfNull(ple.advance_voucher_type, "") != ""),
+	]
+
+	advance_query = (
+		qb.from_(ple)
+		.select(
+			ple.company,
+			ple.account,
+			ple.party_type,
+			ple.party,
+			ple.advance_voucher_type.as_("reference_doctype"),
+			ple.advance_voucher_no.as_("reference_name"),
+			Abs(Sum(ple.amount_in_account_currency)).as_("allocated_amount"),
+			ple.account_currency,
+		)
+		.where(Criterion.all(criteria))
+		.having(qb.Field("allocated_amount") > 0)
+		.groupby(ple.advance_voucher_no)
+	)
+
+	return advance_query
 
 
 @frappe.whitelist()
