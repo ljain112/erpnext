@@ -618,8 +618,6 @@ def update_reference_in_journal_entry(d, journal_entry, do_not_save=False):
 	"""
 	Updates against document, if partial amount splits into rows
 	"""
-
-	# TODO: Update unadjusted amount for advance doctype
 	jv_detail = journal_entry.get("accounts", {"name": d["voucher_detail_no"]})[0]
 
 	rev_dr_or_cr = (
@@ -673,6 +671,10 @@ def update_reference_in_journal_entry(d, journal_entry, do_not_save=False):
 	new_row.against_account = cstr(jv_detail.against_account)
 	new_row.is_advance = cstr(jv_detail.is_advance)
 	new_row.docstatus = 1
+
+	if jv_detail.get("reference_type") in get_advance_payment_doctypes():
+		new_row.advance_voucher_type = jv_detail.get("reference_type")
+		new_row.advance_voucher_no = jv_detail.get("reference_name")
 
 	# will work as update after submit
 	journal_entry.flags.ignore_validate_update_after_submit = True
