@@ -3400,7 +3400,6 @@ def get_payment_term_details(
 	fields_to_copy = [
 		"description",
 		"invoice_portion",
-		"payment_term",
 		"discount_type",
 		"discount",
 		"mode_of_payment",
