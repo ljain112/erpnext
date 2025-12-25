@@ -700,15 +700,22 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		}
 	}
 
-	calculate_withholding_amount(frm, cdt, cdn) {
-		// Calculate withholding amount: taxable_amount * tax_rate / 100
+	async calculate_withholding_amount(frm, cdt, cdn) {
 		let row = frappe.get_doc(cdt, cdn);
-		let withholding_amount = flt(
-			(row.taxable_amount * row.tax_rate) / 100,
-			precision("withholding_amount", row)
-		);
+		let precision = precision("withholding_amount", row);
 
-		// Set the calculated withholding amount
+		if (frappe.flags.round_off_tax_withholding_categories === undefined) {
+			frappe.flags.round_off_tax_withholding_categories = await frappe.db.get_list(
+				"Tax Withholding Category",
+				{ filters: { round_off_tax_amount: 1 }, pluck: "name" }
+			);
+		}
+
+		if (frappe.flags.round_off_tax_withholding_categories.includes(row.tax_withholding_category)) {
+			precision = 0;
+		}
+
+		let withholding_amount = flt((row.taxable_amount * row.tax_rate) / 100, precision);
 		frappe.model.set_value(cdt, cdn, "withholding_amount", withholding_amount);
 	}
 
