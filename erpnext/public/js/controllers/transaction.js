@@ -131,13 +131,35 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			frm.cscript.calculate_taxes_and_totals();
 		});
 
-		// Tax Withholding Entries - Auto calculate withholding amount when taxable amount or tax rate changes
-		frappe.ui.form.on("Tax Withholding Entry", "taxable_amount", function (frm, cdt, cdn) {
-			me.calculate_withholding_amount(frm, cdt, cdn);
-		});
+		frappe.ui.form.on("Tax Withholding Entry", {
+			taxable_amount: function (frm, cdt, cdn) {
+				me.calculate_withholding_amount(frm, cdt, cdn);
+			},
+			tax_rate: function (frm, cdt, cdn) {
+				me.calculate_withholding_amount(frm, cdt, cdn);
+			},
+			tax_withholding_entries_add: async function (frm, cdt, cdn) {
+				let row = locals[cdt][cdn];
+				let doc = frm.doc;
+				let defaults = await me.get_tax_withholding_defaults();
 
-		frappe.ui.form.on("Tax Withholding Entry", "tax_rate", function (frm, cdt, cdn) {
-			me.calculate_withholding_amount(frm, cdt, cdn);
+				row.company = doc.company;
+				row.party_type = defaults.party_type;
+				row.party = defaults.party;
+				row.tax_id = defaults.tax_id;
+				row.tax_withholding_category = defaults.tax_withholding_category;
+				row.tax_withholding_group = doc.tax_withholding_group;
+				row.currency = defaults.currency;
+				row.conversion_rate = defaults.conversion_rate;
+				row.taxable_doctype = doc.doctype;
+				row.taxable_name = doc.name;
+				row.taxable_date = doc.posting_date;
+				row.withholding_doctype = doc.doctype;
+				row.withholding_name = doc.name;
+				row.withholding_date = doc.posting_date;
+
+				frm.refresh_field("tax_withholding_entries");
+			},
 		});
 
 		frappe.ui.form.on(this.frm.doctype + " Item", {
@@ -702,7 +724,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 
 	async calculate_withholding_amount(frm, cdt, cdn) {
 		let row = frappe.get_doc(cdt, cdn);
-		let precision = precision("withholding_amount", row);
+		let prec = precision("withholding_amount", row);
 
 		if (frappe.flags.round_off_tax_withholding_categories === undefined) {
 			frappe.flags.round_off_tax_withholding_categories = await frappe.db.get_list(
@@ -712,11 +734,86 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		}
 
 		if (frappe.flags.round_off_tax_withholding_categories.includes(row.tax_withholding_category)) {
-			precision = 0;
+			prec = 0;
 		}
 
-		let withholding_amount = flt((row.taxable_amount * row.tax_rate) / 100, precision);
+		let withholding_amount = flt((row.taxable_amount * row.tax_rate) / 100, prec);
 		frappe.model.set_value(cdt, cdn, "withholding_amount", withholding_amount);
+	}
+
+	async get_tax_withholding_defaults() {
+		let doc = this.frm.doc;
+		let defaults = {
+			party_type: "",
+			party: "",
+			tax_id: "",
+			tax_withholding_category: "",
+			currency: doc.currency || "",
+			conversion_rate: doc.conversion_rate || 1,
+		};
+
+		if (doc.doctype === "Purchase Invoice") {
+			defaults.party_type = "Supplier";
+			defaults.party = doc.supplier;
+			defaults.tax_withholding_category = this._get_item_tax_withholding_category();
+		} else if (doc.doctype === "Sales Invoice") {
+			defaults.party_type = "Customer";
+			defaults.party = doc.customer;
+			defaults.tax_withholding_category = this._get_item_tax_withholding_category();
+		} else if (doc.doctype === "Payment Entry") {
+			defaults.party_type = doc.party_type || "";
+			defaults.party = doc.party || "";
+			defaults.tax_withholding_category = doc.tax_withholding_category || "";
+			defaults.currency = doc.party_account_currency || "";
+			defaults.conversion_rate =
+				doc.payment_type === "Receive"
+					? doc.source_exchange_rate || 1
+					: doc.target_exchange_rate || 1;
+		} else if (doc.doctype === "Journal Entry") {
+			defaults.tax_withholding_category = doc.tax_withholding_category || "";
+			for (let row of doc.accounts || []) {
+				if (row.party_type && row.party) {
+					defaults.party_type = row.party_type;
+					defaults.party = row.party;
+					defaults.currency = row.account_currency || "";
+					defaults.conversion_rate = row.exchange_rate || 1;
+					break;
+				}
+			}
+		}
+
+		if (defaults.party_type && defaults.party) {
+			defaults.tax_id = await this.get_party_tax_id(defaults.party_type, defaults.party);
+		}
+
+		return defaults;
+	}
+
+	_get_item_tax_withholding_category() {
+		for (let item of this.frm.doc.items || []) {
+			if (item.tax_withholding_category) {
+				return item.tax_withholding_category;
+			}
+		}
+		return "";
+	}
+
+	async get_party_tax_id(party_type, party) {
+		this.frm._party_tax_id = this.frm._party_tax_id || {};
+		const cache_key = `${party_type}:${party}`;
+
+		if (cache_key in this.frm._party_tax_id) {
+			return this.frm._party_tax_id[cache_key];
+		}
+
+		const response = await frappe.call({
+			method: "erpnext.accounts.doctype.tax_withholding_category.tax_withholding_category.get_party_tax_id",
+			args: { party_type, party },
+		});
+
+		const tax_id = response?.message || "";
+		this.frm._party_tax_id[cache_key] = tax_id;
+		return tax_id;
 	}
 
 	send_sms() {
