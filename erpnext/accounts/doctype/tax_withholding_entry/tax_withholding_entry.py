@@ -723,7 +723,6 @@ class TaxWithholdingController:
 			if not tax_amount:
 				continue
 
-			# Update existing tax row or create new one
 			if existing_tax := existing_taxes.get(account_head):
 				existing_tax.tax_amount = tax_amount
 				existing_tax.dont_recompute_tax = 1
@@ -735,9 +734,10 @@ class TaxWithholdingController:
 
 			tax_row.add_deduct_tax = add_deduct_tax
 			# Set item-wise tax breakup for this tax row
-			self._set_item_wise_tax_for_tds(
-				tax_row, account_head, category_withholding_map, for_update=for_update
-			)
+			if self.doc.meta.get_field("item_wise_tax_details"):
+				self._set_item_wise_tax_for_tds(
+					tax_row, account_head, category_withholding_map, for_update=for_update
+				)
 
 		self._remove_zero_tax_rows()
 		self.calculate_taxes_and_totals()
@@ -777,6 +777,8 @@ class TaxWithholdingController:
 
 		items = self.doc.get("items") or []
 		category_totals = {}
+		precision = self.doc.precision("tax_amount", "taxes")
+
 		for item in items:
 			if item.apply_tds and item.tax_withholding_category:
 				item_taxable = item.get("_base_tax_withholding_net_total", 0)
@@ -784,7 +786,6 @@ class TaxWithholdingController:
 					category_totals.get(item.tax_withholding_category, 0) + item_taxable
 				)
 
-		precision = self.doc.precision("tax_amount", "taxes")
 		for item in items:
 			if not (item.apply_tds and item.tax_withholding_category):
 				continue
@@ -810,11 +811,11 @@ class TaxWithholdingController:
 				item_effective_taxable = item_base_taxable
 
 			withholding_amount = category_withholding_map.get(category.name, 0)
+			item_tax_amount = 0
+
 			if withholding_amount and category.taxable_amount:
 				item_proportion = item_effective_taxable / category.taxable_amount
 				item_tax_amount = flt(withholding_amount * item_proportion, precision)
-			else:
-				item_tax_amount = 0
 
 			multiplier = -1 if tax_row.add_deduct_tax == "Deduct" else 1
 
