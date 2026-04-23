@@ -726,14 +726,15 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		let row = frappe.get_doc(cdt, cdn);
 		let prec = precision("withholding_amount", row);
 
-		if (frappe.flags.round_off_tax_withholding_categories === undefined) {
-			frappe.flags.round_off_tax_withholding_categories = await frappe.db.get_list(
-				"Tax Withholding Category",
-				{ filters: { round_off_tax_amount: 1 }, pluck: "name" }
-			);
+		// Cache per controller instance (not globally) to avoid stale data across forms.
+		if (!this._round_off_categories) {
+			this._round_off_categories = await frappe.db.get_list("Tax Withholding Category", {
+				filters: { round_off_tax_amount: 1 },
+				pluck: "name",
+			});
 		}
 
-		if (frappe.flags.round_off_tax_withholding_categories.includes(row.tax_withholding_category)) {
+		if (this._round_off_categories.includes(row.tax_withholding_category)) {
 			prec = 0;
 		}
 
@@ -752,14 +753,17 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			conversion_rate: doc.conversion_rate || 1,
 		};
 
-		if (doc.doctype === "Purchase Invoice") {
-			defaults.party_type = "Supplier";
-			defaults.party = doc.supplier;
-			defaults.tax_withholding_category = this._get_item_tax_withholding_category();
-		} else if (doc.doctype === "Sales Invoice") {
-			defaults.party_type = "Customer";
-			defaults.party = doc.customer;
-			defaults.tax_withholding_category = this._get_item_tax_withholding_category();
+		const invoice_party_map = {
+			"Purchase Invoice": { party_type: "Supplier", party_field: "supplier" },
+			"Sales Invoice": { party_type: "Customer", party_field: "customer" },
+		};
+
+		if (invoice_party_map[doc.doctype]) {
+			const { party_type, party_field } = invoice_party_map[doc.doctype];
+			defaults.party_type = party_type;
+			defaults.party = doc[party_field] || "";
+			defaults.tax_withholding_category =
+				doc.tax_withholding_category || this._get_item_tax_withholding_category();
 		} else if (doc.doctype === "Payment Entry") {
 			defaults.party_type = doc.party_type || "";
 			defaults.party = doc.party || "";
