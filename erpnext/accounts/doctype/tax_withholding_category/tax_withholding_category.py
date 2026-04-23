@@ -258,4 +258,5 @@ def get_tax_id_for_party(party_type, party):
 
 @frappe.whitelist()
 def get_party_tax_id(party_type, party):
+	frappe.has_permission(party_type, throw=True)
 	return get_tax_id_for_party(party_type, party)
