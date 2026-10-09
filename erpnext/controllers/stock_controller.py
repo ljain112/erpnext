@@ -402,8 +402,8 @@ class StockController(AccountsController):
 
 		# Sales Order -> Delivery Note -> Sales Invoice-from-SO billing: attribute qty via
 		# so_detail using the same FIFO distribution as update_billed_amount_based_on_so.
-		for so_detail in {item.so_detail for item in self.items if item.so_detail}:
-			qty_map.update(get_invoiced_qty_based_on_so(so_detail))
+		if so_details := list({item.so_detail for item in self.items if item.so_detail}):
+			qty_map.update(get_invoiced_qty_based_on_so(so_details))
 
 		return qty_map
 
