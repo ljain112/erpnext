@@ -1110,6 +1110,7 @@ class SalesInvoice(SellingController):
 			return
 
 		updated_delivery_notes = []
+		so_details = []
 
 		SalesInvoiceItem = frappe.qb.DocType("Sales Invoice Item")
 		from frappe.query_builder.functions import Coalesce, Sum
@@ -1135,7 +1136,9 @@ class SalesInvoice(SellingController):
 				)
 				updated_delivery_notes.append(d.delivery_note)
 			elif d.so_detail:
-				updated_delivery_notes += update_billed_amount_based_on_so(d.so_detail, update_modified)
+				so_details.append(d.so_detail)
+
+		updated_delivery_notes += update_billed_amount_based_on_so(so_details, update_modified)
 
 		for dn in set(updated_delivery_notes):
 			frappe.get_doc("Delivery Note", dn).update_billing_percentage(update_modified=update_modified)

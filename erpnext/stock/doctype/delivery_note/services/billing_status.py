@@ -32,11 +32,14 @@ class BillingStatusService:
 		if doc.is_return and doc.return_against:
 			updated_delivery_notes.append(doc.return_against)
 
+		so_details = []
 		for d in doc.get("items"):
 			if d.si_detail and not d.so_detail:
 				d.db_set("billed_amt", d.amount, update_modified=update_modified)
 			elif d.so_detail:
-				updated_delivery_notes += update_billed_amount_based_on_so(d.so_detail, update_modified)
+				so_details.append(d.so_detail)
+
+		updated_delivery_notes += update_billed_amount_based_on_so(so_details, update_modified)
 
 		for dn in set(updated_delivery_notes):
 			dn_doc = doc if (dn == doc.name) else frappe.get_lazy_doc("Delivery Note", dn)
@@ -65,38 +68,40 @@ class BillingStatusService:
 			)
 
 
-def update_billed_amount_based_on_so(so_detail: str, update_modified: bool = True) -> list[str]:
+def update_billed_amount_based_on_so(so_details: list[str], update_modified: bool = True) -> list[str]:
+	if not so_details:
+		return []
+
 	# Billed against Sales Order directly
 	si = frappe.qb.DocType("Sales Invoice").as_("si")
 	si_item = frappe.qb.DocType("Sales Invoice Item").as_("si_item")
-	sum_amount = Sum(si_item.amount).as_("amount")
 
-	billed_against_so = (
+	billed_against_so_details = dict(
 		frappe.qb.from_(si_item)
 		.join(si)
 		.on(si.name == si_item.parent)
-		.select(sum_amount)
+		.select(si_item.so_detail, Sum(si_item.amount))
 		.where(
-			(si_item.so_detail == so_detail)
+			(si_item.so_detail.isin(so_details))
 			& ((si_item.dn_detail.isnull()) | (si_item.dn_detail == ""))
 			& (si_item.docstatus == 1)
 			& (si.update_stock == 0)
 		)
+		.groupby(si_item.so_detail)
 		.run()
 	)
-	billed_against_so = billed_against_so and billed_against_so[0][0] or 0
 
-	# Get all Delivery Note Item rows against the Sales Order Item row
+	# Get all Delivery Note Item rows against the Sales Order Item rows
 	dn = frappe.qb.DocType("Delivery Note").as_("dn")
 	dn_item = frappe.qb.DocType("Delivery Note Item").as_("dn_item")
 
 	dn_details = (
 		frappe.qb.from_(dn)
 		.from_(dn_item)
-		.select(dn_item.name, dn_item.amount, dn_item.si_detail, dn_item.parent)
+		.select(dn_item.name, dn_item.amount, dn_item.si_detail, dn_item.parent, dn_item.so_detail)
 		.where(
 			(dn.name == dn_item.parent)
-			& (dn_item.so_detail == so_detail)
+			& (dn_item.so_detail.isin(so_details))
 			& (dn.docstatus == 1)
 			& (dn.is_return == 0)
 		)
@@ -104,22 +109,31 @@ def update_billed_amount_based_on_so(so_detail: str, update_modified: bool = Tru
 		.run(as_dict=True)
 	)
 
+	# Get billed amount directly against Delivery Notes
+	dn_items_billed_directly = [dnd.name for dnd in dn_details if not dnd.si_detail]
+	billed_against_dn = (
+		dict(
+			frappe.qb.from_(si_item)
+			.select(si_item.dn_detail, Sum(si_item.amount))
+			.where((si_item.dn_detail.isin(dn_items_billed_directly)) & (si_item.docstatus == 1))
+			.groupby(si_item.dn_detail)
+			.run()
+		)
+		if dn_items_billed_directly
+		else {}
+	)
+
+	billed_amounts = {}
 	updated_dn = []
 	for dnd in dn_details:
-		billed_amt_against_dn = 0
+		billed_against_so = billed_against_so_details.get(dnd.so_detail) or 0
 
 		# If delivered against Sales Invoice
 		if dnd.si_detail:
 			billed_amt_against_dn = flt(dnd.amount)
 			billed_against_so -= billed_amt_against_dn
 		else:
-			# Get billed amount directly against Delivery Note
-			billed_amt_against_dn = frappe.get_all(
-				"Sales Invoice Item",
-				filters={"dn_detail": dnd.name, "docstatus": 1},
-				fields=[{"SUM": "amount", "as": "amount"}],
-			)
-			billed_amt_against_dn = billed_amt_against_dn[0].amount or 0 if billed_amt_against_dn else 0
+			billed_amt_against_dn = billed_against_dn.get(dnd.name) or 0
 
 		# Distribute billed amount directly against SO between DNs based on FIFO
 		if billed_against_so and billed_amt_against_dn < dnd.amount:
@@ -131,15 +145,11 @@ def update_billed_amount_based_on_so(so_detail: str, update_modified: bool = Tru
 				billed_amt_against_dn += billed_against_so
 				billed_against_so = 0
 
-		frappe.db.set_value(
-			"Delivery Note Item",
-			dnd.name,
-			"billed_amt",
-			billed_amt_against_dn,
-			update_modified=update_modified,
-		)
-
+		billed_against_so_details[dnd.so_detail] = billed_against_so
+		billed_amounts[dnd.name] = {"billed_amt": billed_amt_against_dn}
 		updated_dn.append(dnd.parent)
+
+	frappe.db.bulk_update("Delivery Note Item", billed_amounts, update_modified=update_modified)
 
 	return updated_dn
 
