@@ -1113,35 +1113,38 @@ class SalesInvoice(SellingController):
 		so_details = []
 
 		SalesInvoiceItem = frappe.qb.DocType("Sales Invoice Item")
-		from frappe.query_builder.functions import Coalesce, Sum
+		from frappe.query_builder.functions import Sum
 
+		dn_details = [d.dn_detail for d in self.get("items") if d.dn_detail]
+		billed_amt_against_dn_details = (
+			dict(
+				frappe.qb.from_(SalesInvoiceItem)
+				.select(SalesInvoiceItem.dn_detail, Sum(SalesInvoiceItem.amount))
+				.where(SalesInvoiceItem.dn_detail.isin(dn_details))
+				.where(SalesInvoiceItem.docstatus == 1)
+				.groupby(SalesInvoiceItem.dn_detail)
+				.run()
+			)
+			if dn_details
+			else {}
+		)
+
+		billed_amounts = {}
 		for d in self.get("items"):
 			if d.dn_detail:
-				query = (
-					frappe.qb.from_(SalesInvoiceItem)
-					.select(Coalesce(Sum(SalesInvoiceItem.amount), 0))
-					.where(SalesInvoiceItem.dn_detail == d.dn_detail)
-					.where(SalesInvoiceItem.docstatus == 1)
-				)
-
-				res = query.run()
-				billed_amt = res[0][0] if res else 0
-
-				frappe.db.set_value(
-					"Delivery Note Item",
-					d.dn_detail,
-					"billed_amt",
-					billed_amt,
-					update_modified=update_modified,
-				)
+				billed_amt = billed_amt_against_dn_details.get(d.dn_detail) or 0
+				billed_amounts[d.dn_detail] = {"billed_amt": billed_amt}
 				updated_delivery_notes.append(d.delivery_note)
 			elif d.so_detail:
 				so_details.append(d.so_detail)
 
+		frappe.db.bulk_update("Delivery Note Item", billed_amounts, update_modified=update_modified)
 		updated_delivery_notes += update_billed_amount_based_on_so(so_details, update_modified)
 
 		for dn in set(updated_delivery_notes):
-			frappe.get_doc("Delivery Note", dn).update_billing_percentage(update_modified=update_modified)
+			frappe.get_lazy_doc("Delivery Note", dn).update_billing_percentage(
+				update_modified=update_modified
+			)
 
 	def on_recurring(self, reference_doc, auto_repeat_doc):
 		self.set("write_off_amount", reference_doc.get("write_off_amount"))
