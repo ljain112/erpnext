@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder.functions import Sum
-from frappe.utils import comma_or, flt, get_link_to_form, getdate, now, nowdate, safe_div
+from frappe.utils import comma_or, flt, get_link_to_form, getdate, nowdate, safe_div
 
 from erpnext.controllers.item_close import closed_rows_settle, has_closable_items
 
@@ -628,58 +628,51 @@ class StatusUpdater(Document):
 
 	def _update_children(self, args, update_modified):
 		"""Update quantities or amount in child table"""
-		for d in self.get_all_children():
-			if d.doctype != args["source_dt"]:
-				continue
+		detail_ids = tuple(
+			{d.get(args["join_field"]) for d in self.get_all_children(args["source_dt"])} - {None, ""}
+		)
+		if not detail_ids:
+			return
 
-			self._update_modified(args, update_modified)
+		if not args.get("extra_cond"):
+			args["extra_cond"] = ""
 
-			# updates qty in the child table
-			args["detail_id"] = d.get(args["join_field"])
+		source_dt_values = dict(
+			frappe.db.sql(
+				"""select `{join_field}`, coalesce(sum({source_field}), 0)
+				from `tab{source_dt}` where `{join_field}` in %(detail_ids)s
+				and (docstatus=1 {cond}) {extra_cond}
+				group by `{join_field}`""".format(**args),
+				{"detail_ids": detail_ids},
+			)
+		)
 
-			args["second_source_condition"] = ""
-			if (
-				args.get("second_source_dt")
-				and args.get("second_source_field")
-				and args.get("second_join_field")
-			):
-				if not args.get("second_source_extra_cond"):
-					args["second_source_extra_cond"] = ""
+		second_source_values = {}
+		if args.get("second_source_dt") and args.get("second_source_field") and args.get("second_join_field"):
+			if not args.get("second_source_extra_cond"):
+				args["second_source_extra_cond"] = ""
 
-				args["second_source_condition"] = frappe.db.sql(
-					""" select coalesce((select sum({second_source_field})
-					from `tab{second_source_dt}`
-					where `{second_join_field}`=%(detail_id)s
-					and (`tab{second_source_dt}`.docstatus=1)
-					{second_source_extra_cond}), 0) """.format(**args),
-					{"detail_id": args["detail_id"]},
-				)[0][0]
-
-			if args["detail_id"]:
-				if not args.get("extra_cond"):
-					args["extra_cond"] = ""
-
-				args["source_dt_value"] = (
-					frappe.db.sql(
-						"""
-						(select coalesce(sum({source_field}), 0)
-							from `tab{source_dt}` where `{join_field}`=%(detail_id)s
-							and (docstatus=1 {cond}) {extra_cond})
-				""".format(**args),
-						{"detail_id": args["detail_id"]},
-					)[0][0]
-					or 0.0
-				)
-
-				if args["second_source_condition"]:
-					args["source_dt_value"] += flt(args["second_source_condition"])
-
+			second_source_values = dict(
 				frappe.db.sql(
-					"""update `tab{target_dt}`
-					set {target_field} = {source_dt_value} {update_modified}
-					where name=%(detail_id)s""".format(**args),
-					{"detail_id": args["detail_id"]},
+					"""select `{second_join_field}`, coalesce(sum({second_source_field}), 0)
+					from `tab{second_source_dt}` where `{second_join_field}` in %(detail_ids)s
+					and (`tab{second_source_dt}`.docstatus=1) {second_source_extra_cond}
+					group by `{second_join_field}`""".format(**args),
+					{"detail_ids": detail_ids},
 				)
+			)
+
+		frappe.db.bulk_update(
+			args["target_dt"],
+			{
+				detail_id: {
+					args["target_field"]: flt(source_dt_values.get(detail_id))
+					+ flt(second_source_values.get(detail_id))
+				}
+				for detail_id in detail_ids
+			},
+			update_modified=update_modified,
+		)
 
 	@staticmethod
 	def _calculate_target_parent_percentage(
@@ -790,15 +783,6 @@ class StatusUpdater(Document):
 			if status.get("status"):
 				update_data.update(status)
 			target.db_set(update_data, update_modified=update_modified, notify=True)
-
-	def _update_modified(self, args, update_modified):
-		if not update_modified:
-			args["update_modified"] = ""
-			return
-
-		args["update_modified"] = ", modified = {}, modified_by = {}".format(
-			frappe.db.escape(now()), frappe.db.escape(frappe.session.user)
-		)
 
 	def update_billing_status_for_zero_amount_refdoc(self, ref_dt):
 		ref_fieldname = frappe.scrub(ref_dt)
