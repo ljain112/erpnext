@@ -92,7 +92,7 @@ class BillingStatusService:
 			return
 
 		for purchase_order in {item.purchase_order for item in doc.items if item.purchase_order}:
-			frappe.get_doc("Purchase Order", purchase_order).update_billing_percentage()
+			frappe.get_lazy_doc("Purchase Order", purchase_order).update_billing_percentage()
 
 	def get_pr_details_billed_amt(self) -> dict:
 		# Get billed amount based on purchase receipt item reference (pr_detail) in purchase invoice
