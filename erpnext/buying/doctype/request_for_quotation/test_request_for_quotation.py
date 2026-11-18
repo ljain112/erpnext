@@ -122,6 +122,13 @@ class TestRequestforQuotation(ERPNextTestSuite):
 		frappe.db.set_value("Supplier", "_Test Supplier", "disabled", 0)
 		rfq.save()
 
+	def test_submit_skips_supplier_with_blank_email(self):
+		rfq = make_request_for_quotation(
+			supplier_data=[{"supplier": "_Test Supplier", "supplier_name": "_Test Supplier", "email_id": ""}]
+		)
+		self.assertEqual(rfq.docstatus, 1)
+		self.assertFalse(rfq.suppliers[0].email_sent)
+
 	def test_rfq_status_lifecycle(self):
 		rfq = make_request_for_quotation()
 		self.assertEqual(rfq.status, "Submitted")

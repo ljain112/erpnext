@@ -95,7 +95,9 @@ class TestRepostItemValuation(ERPNextTestSuite, StockTestMixin):
 				msg=f"Exepcted false from : {case}",
 			)
 
-	def make_queued_item_repost(self, item_code, posting_date, warehouse="_Test Warehouse - _TC"):
+	def make_queued_item_repost(
+		self, item_code, posting_date, warehouse="_Test Warehouse - _TC", posting_time="00:00:00"
+	):
 		repost = frappe.new_doc("Repost Item Valuation")
 		repost.update(
 			{
@@ -104,12 +106,18 @@ class TestRepostItemValuation(ERPNextTestSuite, StockTestMixin):
 				"warehouse": warehouse,
 				"company": "_Test Company",
 				"posting_date": posting_date,
-				"posting_time": "00:00:00",
+				"posting_time": posting_time,
 			}
 		)
 		repost.flags.dont_run_in_test = True
 		repost.submit()
 		return repost
+
+	def test_blank_posting_time_defaults_to_now_and_midnight_is_kept(self):
+		item_code = make_item(properties={"is_stock_item": 1}).name
+		self.assertTrue(self.make_queued_item_repost(item_code, today(), posting_time="").posting_time)
+		midnight = self.make_queued_item_repost(item_code, today())
+		self.assertEqual(str(frappe.db.get_value(midnight.doctype, midnight.name, "posting_time")), "0:00:00")
 
 	def test_repost_queued_after_start_is_not_skipped(self):
 		item_code = make_item(properties={"is_stock_item": 1}).name
